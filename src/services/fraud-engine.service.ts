@@ -1,5 +1,4 @@
 import type { BraintreeTransaction } from './braintree.service.js';
-import { capabilityTier } from './braintree.service.js';
 
 export interface FraudSignal {
   rule: string;
@@ -16,23 +15,14 @@ export interface FraudEvaluation {
 export function evaluateFraud(tx: BraintreeTransaction): FraudEvaluation {
   const signals: FraudSignal[] = [];
 
-  if (tx.gatewayRejectionReason) {
+  // Phase 0 finding: gatewayRejectionReason and riskData not available in basic tier API version.
+  // Status GATEWAY_REJECTED indicates a gateway rejection even without the reason field.
+  if (tx.status === 'GATEWAY_REJECTED') {
     signals.push({
       rule: 'GATEWAY_REJECTION',
-      description: `Transaction rejected by gateway: ${tx.gatewayRejectionReason}`,
-      value: tx.gatewayRejectionReason,
+      description: `Transaction status is GATEWAY_REJECTED (orderId: ${tx.orderId ?? 'n/a'})`,
+      value: tx.status,
     });
-  }
-
-  if (capabilityTier === 'premium' && tx.riskData?.decision) {
-    const decision = tx.riskData.decision;
-    if (decision === 'Review' || decision === 'Decline') {
-      signals.push({
-        rule: 'BRAINTREE_RISK_DECISION',
-        description: `Braintree ML risk decision: ${decision}`,
-        value: decision,
-      });
-    }
   }
 
   const riskScore = Math.min(100, signals.length * 30);

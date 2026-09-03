@@ -28,7 +28,8 @@ router.post('/webhook/transaction', async (req, res) => {
       getPaymentHistory(loanId),
     ]);
 
-    if (!tx || !borrower) return;
+    if (!tx) { console.warn(`Webhook: transaction ${transactionId} not found in Braintree`); return; }
+    if (!borrower) { console.warn(`Webhook: no borrower context for ${borrowerId} (loan not in AFS DB)`); return; }
 
     const fraud = evaluateFraud(tx);
     const aml = evaluateAml(tx, borrower, history);
@@ -45,12 +46,7 @@ router.post('/webhook/transaction', async (req, res) => {
           transactionIds: [transactionId],
           riskScore: fraud.riskScore,
           signals: fraud.signals,
-          braintreeSignals: {
-            avsResult: tx.statusHistory?.find(s => s.processorResponse)?.processorResponse?.avsPostalCodeResponseCode,
-            cvvResult: tx.statusHistory?.find(s => s.processorResponse)?.processorResponse?.cvvResponseCode,
-            riskDecision: tx.riskData?.decision,
-            gatewayRejectionReason: tx.gatewayRejectionReason,
-          },
+          braintreeSignals: {},
         })
       );
     }
@@ -59,19 +55,13 @@ router.post('/webhook/transaction', async (req, res) => {
       alertPromises.push(
         createAlert({
           type: 'AML',
-          severity:
-            aml.riskScore >= 75 ? 'CRITICAL' : aml.riskScore >= 50 ? 'HIGH' : 'MEDIUM',
+          severity: aml.riskScore >= 75 ? 'CRITICAL' : aml.riskScore >= 50 ? 'HIGH' : 'MEDIUM',
           borrowerId,
           loanId,
           transactionIds: [transactionId],
           riskScore: aml.riskScore,
           signals: aml.signals,
-          braintreeSignals: {
-            avsResult: tx.statusHistory?.find(s => s.processorResponse)?.processorResponse?.avsPostalCodeResponseCode,
-            cvvResult: tx.statusHistory?.find(s => s.processorResponse)?.processorResponse?.cvvResponseCode,
-            riskDecision: tx.riskData?.decision,
-            gatewayRejectionReason: tx.gatewayRejectionReason,
-          },
+          braintreeSignals: {},
         })
       );
     }

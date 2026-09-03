@@ -37,48 +37,29 @@ async function query(q: string, variables: Record<string, unknown> = {}) {
 
 const FULL_QUERY = `
   query Audit($id: ID!) {
-    transaction(id: $id) {
-      id
-      status
-      amount { value currencyCode }
-      createdAt
-      gatewayRejectionReason
-      orderId
-      customerId
-      paymentMethodSnapshot {
-        ... on CreditCardDetails {
-          last4
-          bin
-          expirationMonth
-          expirationYear
-          cardholderName
-          countryOfIssuance
-          issuingBank
-          uniqueNumberIdentifier
-        }
-        ... on PayPalTransactionDetails {
-          payerEmail
-          payerId
-          sellerProtectionStatus
-        }
-      }
-      statusHistory {
-        status
-        source
-        timestamp
-        processorResponse {
-          avsPostalCodeResponseCode
-          avsStreetAddressResponseCode
-          cvvResponseCode
-          legacyCode
-          message
-        }
-      }
-      riskData {
-        decision
-        deviceDataCaptured
-        fraudServiceProvider
+    node(id: $id) {
+      ... on Transaction {
         id
+        status
+        amount { value currencyCode }
+        createdAt
+        gatewayRejectionReason
+        orderId
+        customerId
+        paymentMethodSnapshot {
+          ... on CreditCardDetails {
+            last4
+            bin
+            expirationMonth
+            expirationYear
+            cardholderName
+          }
+          ... on PayPalTransactionDetails {
+            payerStatus
+          }
+        }
+        statusHistory { status source timestamp }
+        riskData { decision deviceDataCaptured fraudServiceProvider id }
       }
     }
   }
@@ -106,7 +87,7 @@ async function main() {
   console.log(`\nAuditing transaction: ${TRANSACTION_ID}\n`);
   try {
     const data = await query(FULL_QUERY, { id: TRANSACTION_ID });
-    const tx = data.transaction;
+    const tx = data.node;
     if (!tx) { console.error('Transaction not found'); process.exit(1); }
 
     const fields = audit(tx);
