@@ -33,18 +33,38 @@ export interface BraintreeTransaction {
   amount: { value: string; currencyCode: string };
   status: string;
   createdAt: string;
-  paymentMethodSnapshot?: { last4?: string; bin?: string };
+  gatewayRejectionReason?: string;
+  orderId?: string;
+  customerId?: string;
+  paymentMethodSnapshot?: {
+    last4?: string;
+    bin?: string;
+    expirationMonth?: string;
+    expirationYear?: string;
+    cardholderName?: string;
+    countryOfIssuance?: string;
+    issuingBank?: string;
+    payerEmail?: string;
+  };
+  /** AVS/CVV live in statusHistory processorResponse (not top-level in GraphQL API) */
+  statusHistory?: Array<{
+    status: string;
+    source: string;
+    timestamp: string;
+    processorResponse?: {
+      avsPostalCodeResponseCode?: string;
+      avsStreetAddressResponseCode?: string;
+      cvvResponseCode?: string;
+      legacyCode?: string;
+      message?: string;
+    };
+  }>;
   riskData?: {
     decision?: string;
     deviceDataCaptured?: boolean;
     fraudServiceProvider?: string;
     id?: string;
   };
-  avsCvvResponseCode?: string;
-  cvvResponseCode?: string;
-  gatewayRejectionReason?: string;
-  orderId?: string;
-  customerId?: string;
 }
 
 const TRANSACTION_QUERY = `
@@ -58,8 +78,28 @@ const TRANSACTION_QUERY = `
       orderId
       customerId
       paymentMethodSnapshot {
-        ... on CreditCardDetails { last4 bin }
+        ... on CreditCardDetails {
+          last4
+          bin
+          expirationMonth
+          expirationYear
+          cardholderName
+          countryOfIssuance
+          issuingBank
+        }
         ... on PayPalTransactionDetails { payerEmail }
+      }
+      statusHistory {
+        status
+        source
+        timestamp
+        processorResponse {
+          avsPostalCodeResponseCode
+          avsStreetAddressResponseCode
+          cvvResponseCode
+          legacyCode
+          message
+        }
       }
       riskData { decision deviceDataCaptured fraudServiceProvider id }
     }

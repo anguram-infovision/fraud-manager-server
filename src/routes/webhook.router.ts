@@ -46,8 +46,8 @@ router.post('/webhook/transaction', async (req, res) => {
           riskScore: fraud.riskScore,
           signals: fraud.signals,
           braintreeSignals: {
-            avsResult: tx.avsCvvResponseCode,
-            cvvResult: tx.cvvResponseCode,
+            avsResult: tx.statusHistory?.find(s => s.processorResponse)?.processorResponse?.avsPostalCodeResponseCode,
+            cvvResult: tx.statusHistory?.find(s => s.processorResponse)?.processorResponse?.cvvResponseCode,
             riskDecision: tx.riskData?.decision,
             gatewayRejectionReason: tx.gatewayRejectionReason,
           },
@@ -67,8 +67,8 @@ router.post('/webhook/transaction', async (req, res) => {
           riskScore: aml.riskScore,
           signals: aml.signals,
           braintreeSignals: {
-            avsResult: tx.avsCvvResponseCode,
-            cvvResult: tx.cvvResponseCode,
+            avsResult: tx.statusHistory?.find(s => s.processorResponse)?.processorResponse?.avsPostalCodeResponseCode,
+            cvvResult: tx.statusHistory?.find(s => s.processorResponse)?.processorResponse?.cvvResponseCode,
             riskDecision: tx.riskData?.decision,
             gatewayRejectionReason: tx.gatewayRejectionReason,
           },
