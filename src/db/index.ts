@@ -1,16 +1,14 @@
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { createClient } from '@libsql/client';
+import { drizzle } from 'drizzle-orm/libsql';
 import * as schema from './schema.js';
 import { mkdirSync } from 'fs';
-import { dirname } from 'path';
+import { dirname, resolve } from 'path';
 import 'dotenv/config';
 
 const dbPath = process.env['DB_PATH'] ?? './data/fraud.db';
-mkdirSync(dirname(dbPath), { recursive: true });
+mkdirSync(dirname(resolve(dbPath)), { recursive: true });
 
-const sqlite = new Database(dbPath);
-sqlite.pragma('journal_mode = WAL');
-sqlite.pragma('foreign_keys = ON');
+const client = createClient({ url: `file:${resolve(dbPath)}` });
 
-export const db = drizzle(sqlite, { schema });
+export const db = drizzle(client, { schema });
 export type Db = typeof db;
