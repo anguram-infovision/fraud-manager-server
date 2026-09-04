@@ -19,9 +19,11 @@ app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-app.use(`${API_BASE_PATH}/scenarios`, scenariosRouter);
-app.use(API_BASE_PATH, webhookRouter);
-app.use(API_BASE_PATH, alertsRouter);
+// Mount on both /api (dev proxy) and /fraud/api (prod IIS) — same pattern as disputes-manager
+const PATHS = API_BASE_PATH === '/fraud/api' ? ['/api', '/fraud/api'] : [API_BASE_PATH];
+app.use(PATHS.map(p => `${p}/scenarios`), scenariosRouter);
+app.use(PATHS, webhookRouter);
+app.use(PATHS, alertsRouter);
 
 const pfxPath = process.env['SSL_PFX_PATH'];
 if (pfxPath && existsSync(pfxPath)) {
