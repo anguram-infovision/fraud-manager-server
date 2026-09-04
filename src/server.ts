@@ -19,9 +19,9 @@ app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-app.use(API_BASE_PATH, alertsRouter);
-app.use(API_BASE_PATH, webhookRouter);
 app.use(`${API_BASE_PATH}/scenarios`, scenariosRouter);
+app.use(API_BASE_PATH, webhookRouter);
+app.use(API_BASE_PATH, alertsRouter);
 
 const pfxPath = process.env['SSL_PFX_PATH'];
 if (pfxPath && existsSync(pfxPath)) {

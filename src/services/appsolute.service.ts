@@ -2,8 +2,12 @@
 // Replaces the previous HTTP stub (AFS_API_BASE_URL / AFS_API_KEY).
 // Lookup key: AltCustTrkNo = loanId (mortgage loan number).
 // Same DB as disputes-manager — see disputes-manager/server/src/services/ops-db.service.ts.
+//
+// DEV_MOCK_BORROWER=true  — returns synthetic data when DB is unreachable (dev/offline only).
 import { getPool, sql } from './db.service.js';
 import logger from '../utils/logger.js';
+
+const DEV_MOCK = process.env['DEV_MOCK_BORROWER'] === 'true';
 
 export interface BorrowerContext {
   borrowerId: string;
@@ -56,6 +60,10 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const borrowerCache = new Map<string, { result: BorrowerContext | null; expiresAt: number }>();
 
 export async function getBorrowerContext(borrowerId: string): Promise<BorrowerContext | null> {
+  if (DEV_MOCK) {
+    return { borrowerId, loanId: borrowerId, expectedMonthlyPayment: 2500, loanStatus: 'ACTIVE' };
+  }
+
   const cached = borrowerCache.get(borrowerId);
   if (cached && cached.expiresAt > Date.now()) return cached.result;
 
@@ -111,6 +119,20 @@ const HISTORY_QUERY = `
 const historyCache = new Map<string, { result: PaymentHistory[]; expiresAt: number }>();
 
 export async function getPaymentHistory(loanId: string, windowDays = 30): Promise<PaymentHistory[]> {
+  if (DEV_MOCK) {
+    // Synthetic history: 3 payments from same method + 1 large payment to trigger AMOUNT_DEVIATION
+    const now = new Date();
+    return [1, 2, 3].map((i) => ({
+      transactionId: `mock-txn-${i}`,
+      amount: 2500,
+      paymentMethod: 'ACH-001',
+      createdAt: new Date(now.getTime() - i * 2 * 86_400_000).toISOString(),
+      status: 'SETTLED',
+      isRefund: false,
+      isDispute: false,
+    }));
+  }
+
   const cacheKey = `${loanId}:${windowDays}`;
   const cached = historyCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.result;
