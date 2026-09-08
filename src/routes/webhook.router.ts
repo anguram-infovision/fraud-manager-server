@@ -31,7 +31,7 @@ router.post('/webhook/transaction', async (req, res) => {
     if (!tx) { console.warn(`Webhook: transaction ${transactionId} not found in Braintree`); return; }
     if (!borrower) { console.warn(`Webhook: no borrower context for ${borrowerId} (loan not in AFS DB)`); return; }
 
-    const fraud = evaluateFraud(tx);
+    const fraud = evaluateFraud(tx, history, 'US');
     const aml = evaluateAml(tx, borrower, history);
 
     const alertPromises: Promise<unknown>[] = [];

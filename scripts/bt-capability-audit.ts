@@ -43,9 +43,7 @@ const FULL_QUERY = `
         status
         amount { value currencyCode }
         createdAt
-        gatewayRejectionReason
         orderId
-        customerId
         paymentMethodSnapshot {
           ... on CreditCardDetails {
             last4
@@ -56,6 +54,14 @@ const FULL_QUERY = `
           }
           ... on PayPalTransactionDetails {
             payerStatus
+          }
+          ... on VenmoAccountDetails {
+            username
+          }
+          ... on UsBankAccountDetails {
+            last4
+            bankName
+            accountType
           }
         }
         statusHistory { status source timestamp }

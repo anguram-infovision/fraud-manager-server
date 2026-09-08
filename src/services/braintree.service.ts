@@ -83,3 +83,34 @@ export async function getTransaction(id: string): Promise<BraintreeTransaction |
 export const capabilityTier = (process.env['BT_CAPABILITY_TIER'] ?? 'basic') as
   | 'basic'
   | 'premium';
+
+// Returns the set of transaction legacyIds (Braintree short IDs) that have active disputes.
+// Used to set isDispute=true in payment history for REFUND_DISPUTE_CYCLE detection.
+const DISPUTES_QUERY = `
+  query GetDisputes($ids: [String!]!) {
+    disputes(input: { transaction: { id: { in: $ids } } }) {
+      edges {
+        node {
+          status
+          transaction { legacyId }
+        }
+      }
+    }
+  }
+`;
+
+export async function getDisputedTransactionIds(legacyIds: string[]): Promise<Set<string>> {
+  if (!legacyIds.length) return new Set();
+  try {
+    const data = await gql<{ disputes: { edges: { node: { status: string; transaction: { legacyId: string } } }[] } }>(
+      DISPUTES_QUERY, { ids: legacyIds }
+    );
+    return new Set(
+      data.disputes.edges
+        .filter(e => e.node.status !== 'WON') // WON = merchant won, not a real dispute burden
+        .map(e => e.node.transaction.legacyId)
+    );
+  } catch {
+    return new Set(); // non-fatal — AML degrades gracefully
+  }
+}

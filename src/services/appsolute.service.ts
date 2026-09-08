@@ -5,6 +5,7 @@
 //
 // DEV_MOCK_BORROWER=true  — returns synthetic data when DB is unreachable (dev/offline only).
 import { getPool, sql } from './db.service.js';
+import { getDisputedTransactionIds } from './braintree.service.js';
 import logger from '../utils/logger.js';
 
 const DEV_MOCK = process.env['DEV_MOCK_BORROWER'] === 'true';
@@ -145,6 +146,11 @@ export async function getPaymentHistory(loanId: string, windowDays = 30): Promis
       .input('windowDays', sql.Int, windowDays)
       .query(HISTORY_QUERY);
 
+    // Cross-reference with Braintree disputes API to flag disputed transactions.
+    // PNREFCode (used as paymentMethod proxy) maps to Braintree legacyId.
+    const legacyIds = res.recordset.map(r => String(r.TransactionId));
+    const disputedIds = await getDisputedTransactionIds(legacyIds);
+
     const result: PaymentHistory[] = res.recordset.map((row) => ({
       transactionId: String(row.TransactionId),
       amount: Number(row.Amount),
@@ -152,7 +158,7 @@ export async function getPaymentHistory(loanId: string, windowDays = 30): Promis
       createdAt: String(row.CreatedAt),
       status: String(row.Status),
       isRefund: Boolean(row.IsRefund),
-      isDispute: false, // Phase 3: cross-reference with Braintree dispute data
+      isDispute: disputedIds.has(String(row.TransactionId)),
     }));
 
     historyCache.set(cacheKey, { result, expiresAt: Date.now() + CACHE_TTL_MS });
