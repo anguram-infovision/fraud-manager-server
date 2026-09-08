@@ -6,7 +6,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsc --listEmittedFiles && node -e \"const fs=require('fs');for(const f of ['web.config','package.json','package-lock.json'])fs.copyFileSync(f,'dist/'+f)\"",
     "start": "node dist/server.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -19,6 +19,7 @@
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.44.2",
     "express": "^5.2.1",
+    "express-session": "^1.19.0",
     "morgan": "^1.11.0",
     "mssql": "^12.7.0",
     "winston": "^3.19.0",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/express-session": "^1.19.0",
     "@types/morgan": "^1.9.10",
     "@types/node": "^26.1.1",
     "drizzle-kit": "^0.31.2",
