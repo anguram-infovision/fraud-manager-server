@@ -15,7 +15,7 @@ import type { BraintreeTransaction } from './braintree.service.js';
 import { getBorrowerContext, getPaymentHistory } from './appsolute.service.js';
 import { evaluateFraud } from './fraud-engine.service.js';
 import { evaluateAml } from './aml-engine.service.js';
-import { createAlert, listAlerts } from './alerts.store.js';
+import { upsertAlert, listAlerts } from './alerts.store.js';
 import logger from '../utils/logger.js';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -105,7 +105,7 @@ async function syncOnce(): Promise<void> {
         const alertPromises: Promise<unknown>[] = [];
 
         if (fraud.triggered) {
-          alertPromises.push(createAlert({
+          alertPromises.push(upsertAlert({
             type: 'FRAUD',
             severity: fraud.riskScore >= 60 ? 'HIGH' : 'MEDIUM',
             borrowerId: borrower.borrowerId,
@@ -118,7 +118,7 @@ async function syncOnce(): Promise<void> {
         }
 
         if (aml.triggered) {
-          alertPromises.push(createAlert({
+          alertPromises.push(upsertAlert({
             type: 'AML',
             severity: aml.riskScore >= 75 ? 'CRITICAL' : aml.riskScore >= 50 ? 'HIGH' : 'MEDIUM',
             borrowerId: borrower.borrowerId,

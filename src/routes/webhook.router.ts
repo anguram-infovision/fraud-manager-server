@@ -3,7 +3,7 @@ import { getTransaction } from '../services/braintree.service.js';
 import { getBorrowerContext, getPaymentHistory } from '../services/appsolute.service.js';
 import { evaluateFraud } from '../services/fraud-engine.service.js';
 import { evaluateAml } from '../services/aml-engine.service.js';
-import { createAlert } from '../services/alerts.store.js';
+import { upsertAlert as createAlert } from '../services/alerts.store.js';
 
 const router = Router();
 

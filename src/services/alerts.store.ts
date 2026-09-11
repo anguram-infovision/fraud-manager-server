@@ -1,6 +1,6 @@
 import { db } from '../db/index.js';
 import { alerts, alertNotes, auditLog } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 export interface CreateAlertInput {
@@ -16,6 +16,39 @@ export interface CreateAlertInput {
 
 function now() {
   return new Date().toISOString();
+}
+
+/**
+ * Creates a new alert or merges into an existing OPEN alert for the same loanId+type.
+ * Prevents duplicate rows when multiple settlements on the same loan all trigger the same rule.
+ */
+export async function upsertAlert(input: CreateAlertInput) {
+  const existing = await db.select().from(alerts)
+    .where(and(eq(alerts.loanId, input.loanId), eq(alerts.type, input.type), eq(alerts.status, 'OPEN')))
+    .get();
+
+  if (existing) {
+    const timestamp = now();
+    const mergedTxIds = Array.from(new Set([
+      ...(JSON.parse(existing.transactionIds) as string[]),
+      ...input.transactionIds,
+    ]));
+    const mergedSignals = [
+      ...(JSON.parse(existing.signals) as unknown[]),
+      ...input.signals,
+    ];
+    const newScore = Math.min(100, mergedSignals.length * 25);
+    await db.update(alerts).set({
+      transactionIds: JSON.stringify(mergedTxIds),
+      signals: JSON.stringify(mergedSignals),
+      riskScore: newScore,
+      severity: newScore >= 75 ? 'CRITICAL' : newScore >= 50 ? 'HIGH' : newScore >= 25 ? 'MEDIUM' : 'LOW',
+      updatedAt: timestamp,
+    }).where(eq(alerts.id, existing.id));
+    return getAlert(existing.id);
+  }
+
+  return createAlert(input);
 }
 
 export async function createAlert(input: CreateAlertInput) {
