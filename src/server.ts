@@ -9,6 +9,7 @@ import alertsRouter from './routes/alerts.router.js';
 import webhookRouter from './routes/webhook.router.js';
 import scenariosRouter from './routes/scenarios.router.js';
 import authRouter from './routes/auth.router.js';
+import { startSyncJob } from './services/sync.service.js';
 
 const PORT = parseInt(process.env['PORT'] ?? '3001', 10);
 const API_BASE_PATH = process.env['API_BASE_PATH'] ?? '/fraud/api';
@@ -52,7 +53,10 @@ if (pfxPath && existsSync(pfxPath)) {
   const passphrase = process.env['SSL_PFX_PASSPHRASE'];
   https
     .createServer({ pfx, passphrase }, app)
-    .listen(PORT, () => console.log(`fraud-manager-server (HTTPS) on :${PORT}`));
+    .listen(PORT, () => { console.log(`fraud-manager-server (HTTPS) on :${PORT}`); startSyncJob(); });
 } else {
-  app.listen(PORT, () => console.log(`fraud-manager-server on :${PORT}`));
+  app.listen(PORT, () => {
+  console.log(`fraud-manager-server on :${PORT}`);
+  startSyncJob();
+});
 }

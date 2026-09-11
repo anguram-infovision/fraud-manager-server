@@ -46,9 +46,7 @@ export interface BraintreeTransaction {
   };
 }
 
-// `transaction(id)` root query added in API version 2020-09-29.
-// `node(id)` inline-fragment works across all versions.
-// Field set confirmed against disputes-manager working queries (API version 2018-03-06/2019-01-01).
+// node(id) requires unpadded base64 global ID: base64("transaction_<legacyId>") with = stripped.
 const TRANSACTION_QUERY = `
   query GetTransaction($id: ID!) {
     node(id: $id) {
@@ -76,7 +74,11 @@ const TRANSACTION_QUERY = `
 `;
 
 export async function getTransaction(id: string): Promise<BraintreeTransaction | null> {
-  const data = await gql<{ node: BraintreeTransaction | null }>(TRANSACTION_QUERY, { id });
+  // If already a global ID (long, no padding issues) use as-is; otherwise encode legacy short ID.
+  const globalId = id.length > 20
+    ? id
+    : Buffer.from(`transaction_${id}`).toString('base64').replace(/=/g, '');
+  const data = await gql<{ node: BraintreeTransaction | null }>(TRANSACTION_QUERY, { id: globalId });
   return data.node;
 }
 
