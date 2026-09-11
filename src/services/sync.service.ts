@@ -18,7 +18,8 @@ import { evaluateAml } from './aml-engine.service.js';
 import { upsertAlert, listAlerts } from './alerts.store.js';
 import logger from '../utils/logger.js';
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+// const POLL_INTERVAL_MS = 5 * 60 * 1000; // Every 5 Minute
+const POLL_INTERVAL_MS = 1 * 60 * 1000; // Every Minute
 
 // Track what we've already evaluated in this process lifetime.
 // On restart we look back LOOKBACK_HOURS to catch any missed settlements.

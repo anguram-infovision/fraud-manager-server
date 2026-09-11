@@ -43,7 +43,21 @@ export interface BraintreeTransaction {
     expirationMonth?: string;
     expirationYear?: string;
     cardholderName?: string;
+    binData?: {
+      prepaid?: string;
+      healthcare?: string;
+      countryOfIssuance?: string;
+      issuingBank?: string;
+    };
   };
+  statusHistory?: { status: string; source?: string; timestamp?: string }[];
+  gatewayRejectionReason?: string;
+  processorResponseCode?: string;
+  processorResponseText?: string;
+  avsPostalCodeResponseCode?: string;
+  avsStreetAddressResponseCode?: string;
+  cvvResponseCode?: string;
+  riskData?: { decision?: string; id?: string; deviceDataCaptured?: boolean };
 }
 
 // node(id) requires unpadded base64 global ID: base64("transaction_<legacyId>") with = stripped.
@@ -58,6 +72,13 @@ const TRANSACTION_QUERY = `
         createdAt
         orderId
         merchantAccountId
+        gatewayRejectionReason
+        processorResponseCode
+        processorResponseText
+        avsPostalCodeResponseCode
+        avsStreetAddressResponseCode
+        cvvResponseCode
+        riskData { decision id deviceDataCaptured }
         customer { firstName lastName }
         paymentMethodSnapshot {
           ... on CreditCardDetails {
@@ -66,6 +87,12 @@ const TRANSACTION_QUERY = `
             expirationMonth
             expirationYear
             cardholderName
+            binData {
+              prepaid
+              healthcare
+              countryOfIssuance
+              issuingBank
+            }
           }
         }
       }

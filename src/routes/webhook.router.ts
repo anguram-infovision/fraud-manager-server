@@ -34,6 +34,24 @@ router.post('/webhook/transaction', async (req, res) => {
     const fraud = evaluateFraud(tx, history, 'US');
     const aml = evaluateAml(tx, borrower, history);
 
+    const btSignals = {
+      status: tx.status,
+      ...(tx.merchantAccountId && { merchantAccountId: tx.merchantAccountId }),
+      ...(tx.gatewayRejectionReason && { gatewayRejectionReason: tx.gatewayRejectionReason }),
+      ...(tx.processorResponseCode && { processorResponseCode: tx.processorResponseCode }),
+      ...(tx.processorResponseText && { processorResponseText: tx.processorResponseText }),
+      ...(tx.avsPostalCodeResponseCode && { avsPostalCodeResponseCode: tx.avsPostalCodeResponseCode }),
+      ...(tx.avsStreetAddressResponseCode && { avsStreetAddressResponseCode: tx.avsStreetAddressResponseCode }),
+      ...(tx.cvvResponseCode && { cvvResponseCode: tx.cvvResponseCode }),
+      ...(tx.riskData?.decision && { riskDecision: tx.riskData.decision }),
+      ...(tx.riskData?.deviceDataCaptured !== undefined && { deviceDataCaptured: tx.riskData.deviceDataCaptured }),
+      ...(tx.paymentMethodSnapshot?.bin && { bin: tx.paymentMethodSnapshot.bin }),
+      ...(tx.paymentMethodSnapshot?.last4 && { last4: tx.paymentMethodSnapshot.last4 }),
+      ...(tx.paymentMethodSnapshot?.cardholderName && { cardholderName: tx.paymentMethodSnapshot.cardholderName }),
+      ...(tx.paymentMethodSnapshot?.binData?.countryOfIssuance && { cardCountry: tx.paymentMethodSnapshot.binData.countryOfIssuance }),
+      ...(tx.paymentMethodSnapshot?.binData?.issuingBank && { issuingBank: tx.paymentMethodSnapshot.binData.issuingBank }),
+    };
+
     const alertPromises: Promise<unknown>[] = [];
 
     if (fraud.triggered) {
@@ -46,7 +64,7 @@ router.post('/webhook/transaction', async (req, res) => {
           transactionIds: [transactionId],
           riskScore: fraud.riskScore,
           signals: fraud.signals,
-          braintreeSignals: {},
+          braintreeSignals: btSignals,
         })
       );
     }
@@ -61,7 +79,7 @@ router.post('/webhook/transaction', async (req, res) => {
           transactionIds: [transactionId],
           riskScore: aml.riskScore,
           signals: aml.signals,
-          braintreeSignals: {},
+          braintreeSignals: btSignals,
         })
       );
     }
