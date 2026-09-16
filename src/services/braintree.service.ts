@@ -109,6 +109,27 @@ export async function getTransaction(id: string): Promise<BraintreeTransaction |
   return data.node;
 }
 
+/** Flattens a Braintree transaction into the compact shape stored as `alerts.braintreeSignals`. */
+export function toBraintreeSignals(tx: BraintreeTransaction): Record<string, unknown> {
+  return {
+    status: tx.status,
+    ...(tx.merchantAccountId && { merchantAccountId: tx.merchantAccountId }),
+    ...(tx.gatewayRejectionReason && { gatewayRejectionReason: tx.gatewayRejectionReason }),
+    ...(tx.processorResponseCode && { processorResponseCode: tx.processorResponseCode }),
+    ...(tx.processorResponseText && { processorResponseText: tx.processorResponseText }),
+    ...(tx.avsPostalCodeResponseCode && { avsPostalCodeResponseCode: tx.avsPostalCodeResponseCode }),
+    ...(tx.avsStreetAddressResponseCode && { avsStreetAddressResponseCode: tx.avsStreetAddressResponseCode }),
+    ...(tx.cvvResponseCode && { cvvResponseCode: tx.cvvResponseCode }),
+    ...(tx.riskData?.decision && { riskDecision: tx.riskData.decision }),
+    ...(tx.riskData?.deviceDataCaptured !== undefined && { deviceDataCaptured: tx.riskData.deviceDataCaptured }),
+    ...(tx.paymentMethodSnapshot?.bin && { bin: tx.paymentMethodSnapshot.bin }),
+    ...(tx.paymentMethodSnapshot?.last4 && { last4: tx.paymentMethodSnapshot.last4 }),
+    ...(tx.paymentMethodSnapshot?.cardholderName && { cardholderName: tx.paymentMethodSnapshot.cardholderName }),
+    ...(tx.paymentMethodSnapshot?.binData?.countryOfIssuance && { cardCountry: tx.paymentMethodSnapshot.binData.countryOfIssuance }),
+    ...(tx.paymentMethodSnapshot?.binData?.issuingBank && { issuingBank: tx.paymentMethodSnapshot.binData.issuingBank }),
+  };
+}
+
 export const capabilityTier = (process.env['BT_CAPABILITY_TIER'] ?? 'basic') as
   | 'basic'
   | 'premium';

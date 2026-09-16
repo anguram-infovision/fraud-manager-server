@@ -11,7 +11,7 @@
  *     → createAlert() if triggered (deduped by loanId+transactionId)
  */
 import { getPool, sql } from './db.service.js';
-import type { BraintreeTransaction } from './braintree.service.js';
+import { getTransaction, toBraintreeSignals, type BraintreeTransaction } from './braintree.service.js';
 import { getBorrowerContext, getPaymentHistory } from './appsolute.service.js';
 import { evaluateFraud } from './fraud-engine.service.js';
 import { evaluateAml, getScenarioConfigs } from './aml-engine.service.js';
@@ -82,10 +82,16 @@ async function syncOnce(): Promise<void> {
       evaluatedPNREFs.add(pnref);
 
       try {
-        // Build a synthetic transaction from AFS data — enough for AML + DUPLICATE_PAYMENT.
-        // PNREFCode is the AFS gateway reference (not Braintree legacy ID), so we skip
-        // the Braintree lookup and use AFS settlement data directly.
-        const tx: BraintreeTransaction = {
+        // PNREFCode is the Braintree legacyId (see CLAUDE.md "Transaction ID namespaces") —
+        // look the transaction up for real AVS/CVV/BIN/risk-decision signals. Falls back to
+        // a synthetic transaction built from AFS data alone if the lookup fails (offline,
+        // rate-limited, or a PNREF that doesn't resolve to a Braintree transaction) so a
+        // Braintree hiccup never blocks AML evaluation, which only needs amount/loan/time.
+        const btTx = await getTransaction(pnref).catch((err) => {
+          logger.warn(`Sync: Braintree lookup failed for pnref=${pnref}: ${(err as Error).message}`);
+          return null;
+        });
+        const tx: BraintreeTransaction = btTx ?? {
           id: pnref,
           legacyId: pnref,
           amount: { value: String(row.Amount), currencyCode: 'USD' },
@@ -93,6 +99,7 @@ async function syncOnce(): Promise<void> {
           createdAt: String(row.SettledAt),
           orderId: loanId,
         };
+        const btSignals = btTx ? toBraintreeSignals(btTx) : {};
 
         const [borrower, history] = await Promise.all([
           getBorrowerContext(loanId),
@@ -120,7 +127,7 @@ async function syncOnce(): Promise<void> {
             transactionIds: [pnref],
             riskScore: fraud.riskScore,
             signals: fraud.signals,
-            braintreeSignals: {},
+            braintreeSignals: btSignals,
           }));
         }
 
@@ -133,7 +140,7 @@ async function syncOnce(): Promise<void> {
             transactionIds: [pnref],
             riskScore: aml.riskScore,
             signals: aml.signals,
-            braintreeSignals: {},
+            braintreeSignals: btSignals,
           }));
         }
 

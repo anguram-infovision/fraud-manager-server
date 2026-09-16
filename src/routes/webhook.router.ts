@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getTransaction } from '../services/braintree.service.js';
+import { getTransaction, toBraintreeSignals } from '../services/braintree.service.js';
 import { getBorrowerContext, getPaymentHistory } from '../services/appsolute.service.js';
 import { evaluateFraud } from '../services/fraud-engine.service.js';
 import { evaluateAml, getScenarioConfigs } from '../services/aml-engine.service.js';
@@ -40,23 +40,7 @@ router.post('/webhook/transaction', async (req, res) => {
     void logSuppressions(loanId, fraud.suppressed.map(s => ({ scenario: s.rule, reason: s.reason, value: s.value })), 'FRAUD');
     void logSuppressions(loanId, aml.suppressed, 'AML');
 
-    const btSignals = {
-      status: tx.status,
-      ...(tx.merchantAccountId && { merchantAccountId: tx.merchantAccountId }),
-      ...(tx.gatewayRejectionReason && { gatewayRejectionReason: tx.gatewayRejectionReason }),
-      ...(tx.processorResponseCode && { processorResponseCode: tx.processorResponseCode }),
-      ...(tx.processorResponseText && { processorResponseText: tx.processorResponseText }),
-      ...(tx.avsPostalCodeResponseCode && { avsPostalCodeResponseCode: tx.avsPostalCodeResponseCode }),
-      ...(tx.avsStreetAddressResponseCode && { avsStreetAddressResponseCode: tx.avsStreetAddressResponseCode }),
-      ...(tx.cvvResponseCode && { cvvResponseCode: tx.cvvResponseCode }),
-      ...(tx.riskData?.decision && { riskDecision: tx.riskData.decision }),
-      ...(tx.riskData?.deviceDataCaptured !== undefined && { deviceDataCaptured: tx.riskData.deviceDataCaptured }),
-      ...(tx.paymentMethodSnapshot?.bin && { bin: tx.paymentMethodSnapshot.bin }),
-      ...(tx.paymentMethodSnapshot?.last4 && { last4: tx.paymentMethodSnapshot.last4 }),
-      ...(tx.paymentMethodSnapshot?.cardholderName && { cardholderName: tx.paymentMethodSnapshot.cardholderName }),
-      ...(tx.paymentMethodSnapshot?.binData?.countryOfIssuance && { cardCountry: tx.paymentMethodSnapshot.binData.countryOfIssuance }),
-      ...(tx.paymentMethodSnapshot?.binData?.issuingBank && { issuingBank: tx.paymentMethodSnapshot.binData.issuingBank }),
-    };
+    const btSignals = toBraintreeSignals(tx);
 
     const alertPromises: Promise<unknown>[] = [];
 
