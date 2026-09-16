@@ -33,11 +33,15 @@ export async function upsertAlert(input: CreateAlertInput) {
       ...(JSON.parse(existing.transactionIds) as string[]),
       ...input.transactionIds,
     ]));
+    const existingSignals = JSON.parse(existing.signals) as { rule: string; description: string; value: unknown }[];
+    const incomingSignals = input.signals as { rule: string; description: string; value: unknown }[];
+    const seenRules = new Set(existingSignals.map(s => s.rule));
     const mergedSignals = [
-      ...(JSON.parse(existing.signals) as unknown[]),
-      ...input.signals,
+      ...existingSignals,
+      ...incomingSignals.filter(s => !seenRules.has(s.rule)),
     ];
-    const newScore = Math.min(100, mergedSignals.length * 25);
+    const scoreMultiplier = existing.type === 'FRAUD' ? 30 : 25;
+    const newScore = Math.min(100, mergedSignals.length * scoreMultiplier);
     await db.update(alerts).set({
       transactionIds: JSON.stringify(mergedTxIds),
       signals: JSON.stringify(mergedSignals),

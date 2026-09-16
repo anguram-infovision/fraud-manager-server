@@ -8,6 +8,7 @@ import https from 'https';
 import alertsRouter from './routes/alerts.router.js';
 import webhookRouter from './routes/webhook.router.js';
 import scenariosRouter from './routes/scenarios.router.js';
+import settingsRouter from './routes/settings.router.js';
 import authRouter from './routes/auth.router.js';
 import { startSyncJob } from './services/sync.service.js';
 
@@ -44,6 +45,7 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
 }
 
 app.use(PATHS.map(p => `${p}/scenarios`), requireAuth, scenariosRouter);
+app.use(PATHS, requireAuth, settingsRouter);
 app.use(PATHS, requireAuth, webhookRouter);
 app.use(PATHS, requireAuth, alertsRouter);
 

@@ -6,6 +6,8 @@ Express 5 backend for AppSolute Fraud & AML Monitor. Receives payment webhooks f
 
 Sits between the AppSolute backend and Braintree to add business-context fraud/AML evaluation that a payment processor cannot perform — knowing the borrower's expected monthly payment, loan history, and multi-source payment patterns.
 
+Primary alert path is a poll loop (`sync.service.ts`) that reads new settlements directly from AFS SQL Server every 15s. The webhook is a secondary entry point pushed by the AppSolute backend and performs a real Braintree GraphQL lookup.
+
 ## Getting Started
 
 ### Prerequisites
@@ -88,6 +90,7 @@ All routes mount on both `/api` (dev proxy) and `/fraud/api` (IIS production).
 - `PAYMENT_VELOCITY` — > 5 payments within 7 days
 - `MULTIPLE_PAYMENT_SOURCES` — ≥ 3 distinct payment methods within 7 days
 - `REFUND_DISPUTE_CYCLE` — loan has both refunds and active disputes
+- `SAME_DAY_VELOCITY` — ≥ 3 payments on same loan within the same calendar day
 
 ## Scripts
 

@@ -14,12 +14,15 @@ import { getPool, sql } from './db.service.js';
 import type { BraintreeTransaction } from './braintree.service.js';
 import { getBorrowerContext, getPaymentHistory } from './appsolute.service.js';
 import { evaluateFraud } from './fraud-engine.service.js';
-import { evaluateAml } from './aml-engine.service.js';
+import { evaluateAml, getScenarioConfigs } from './aml-engine.service.js';
 import { upsertAlert, listAlerts } from './alerts.store.js';
+import { getSettings } from './settings.service.js';
+import { logSuppressions } from './suppression-log.service.js';
 import logger from '../utils/logger.js';
 
-// const POLL_INTERVAL_MS = 5 * 60 * 1000; // Every 5 Minute
-const POLL_INTERVAL_MS = 1 * 60 * 1000; // Every Minute
+// const POLL_INTERVAL_MS = 5 * 60 * 1000; // Every 5 minutes
+// const POLL_INTERVAL_MS = 1 * 60 * 1000; // Every minute
+const POLL_INTERVAL_MS = 15 * 1000; // Every 15 seconds
 
 // Track what we've already evaluated in this process lifetime.
 // On restart we look back LOOKBACK_HOURS to catch any missed settlements.
@@ -66,6 +69,7 @@ async function syncOnce(): Promise<void> {
     // Pre-load existing alert transaction IDs to deduplicate
     const existing = await listAlerts();
     const existingPNREFs = new Set(existing.flatMap(a => a.transactionIds));
+    const [settings, scenarioConfigs] = await Promise.all([getSettings(), getScenarioConfigs()]);
 
     for (const row of res.recordset) {
       const pnref: string = String(row.PNREFCode);
@@ -100,8 +104,10 @@ async function syncOnce(): Promise<void> {
           continue;
         }
 
-        const fraud = evaluateFraud(tx, history, 'US');
-        const aml   = evaluateAml(tx, borrower, history);
+        const fraud = evaluateFraud(tx, history, 'US', 60, borrower, settings);
+        const aml   = evaluateAml(tx, borrower, history, scenarioConfigs, settings);
+        void logSuppressions(loanId, fraud.suppressed.map(s => ({ scenario: s.rule, reason: s.reason, value: s.value })), 'FRAUD');
+        void logSuppressions(loanId, aml.suppressed, 'AML');
 
         const alertPromises: Promise<unknown>[] = [];
 
@@ -149,7 +155,7 @@ async function syncOnce(): Promise<void> {
 }
 
 export function startSyncJob(): void {
-  logger.info(`Sync: starting — polling AFS every ${POLL_INTERVAL_MS / 60_000} min, lookback ${LOOKBACK_HOURS}h`);
+  logger.info(`Sync: starting — polling AFS every ${POLL_INTERVAL_MS / 1000}s, lookback ${LOOKBACK_HOURS}h`);
 
   // Run immediately on startup, then on interval
   void syncOnce();

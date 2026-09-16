@@ -8,6 +8,13 @@
       "when": 1788429615612,
       "tag": "0000_sad_starbolt",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789552531415,
+      "tag": "0001_silky_spirit",
+      "breakpoints": true
     }
   ]
 }

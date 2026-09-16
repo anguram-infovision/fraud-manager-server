@@ -21,6 +21,7 @@ export interface PaymentHistory {
   transactionId: string;
   amount: number;
   paymentMethod: string;
+  orderId?: string;
   createdAt: string;
   status: string;
   isRefund: boolean;

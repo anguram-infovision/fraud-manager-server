@@ -2,8 +2,10 @@ import { Router } from 'express';
 import { getTransaction } from '../services/braintree.service.js';
 import { getBorrowerContext, getPaymentHistory } from '../services/appsolute.service.js';
 import { evaluateFraud } from '../services/fraud-engine.service.js';
-import { evaluateAml } from '../services/aml-engine.service.js';
+import { evaluateAml, getScenarioConfigs } from '../services/aml-engine.service.js';
 import { upsertAlert as createAlert } from '../services/alerts.store.js';
+import { getSettings } from '../services/settings.service.js';
+import { logSuppressions } from '../services/suppression-log.service.js';
 
 const router = Router();
 
@@ -22,17 +24,21 @@ router.post('/webhook/transaction', async (req, res) => {
   res.json({ received: true });
 
   try {
-    const [tx, borrower, history] = await Promise.all([
+    const [tx, borrower, history, settings, scenarioConfigs] = await Promise.all([
       getTransaction(transactionId),
       getBorrowerContext(borrowerId),
       getPaymentHistory(loanId),
+      getSettings(),
+      getScenarioConfigs(),
     ]);
 
     if (!tx) { console.warn(`Webhook: transaction ${transactionId} not found in Braintree`); return; }
     if (!borrower) { console.warn(`Webhook: no borrower context for ${borrowerId} (loan not in AFS DB)`); return; }
 
-    const fraud = evaluateFraud(tx, history, 'US');
-    const aml = evaluateAml(tx, borrower, history);
+    const fraud = evaluateFraud(tx, history, 'US', 60, borrower, settings);
+    const aml = evaluateAml(tx, borrower, history, scenarioConfigs, settings);
+    void logSuppressions(loanId, fraud.suppressed.map(s => ({ scenario: s.rule, reason: s.reason, value: s.value })), 'FRAUD');
+    void logSuppressions(loanId, aml.suppressed, 'AML');
 
     const btSignals = {
       status: tx.status,
@@ -61,7 +67,7 @@ router.post('/webhook/transaction', async (req, res) => {
           severity: fraud.riskScore >= 60 ? 'HIGH' : 'MEDIUM',
           borrowerId,
           loanId,
-          transactionIds: [transactionId],
+          transactionIds: [transactionId, ...fraud.relatedTransactionIds],
           riskScore: fraud.riskScore,
           signals: fraud.signals,
           braintreeSignals: btSignals,

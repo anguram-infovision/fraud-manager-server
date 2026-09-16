@@ -40,3 +40,26 @@ export const auditLog = sqliteTable('audit_log', {
   newValue: text('new_value'),
   createdAt: text('created_at').notNull(),
 });
+
+// Singleton row (id='default') — global correlation/suppression settings.
+export const systemSettings = sqliteTable('system_settings', {
+  id: text('id').primaryKey().default('default'),
+  amlAlertThreshold: real('aml_alert_threshold').notNull().default(60),
+  matureLoanPaymentCount: integer('mature_loan_payment_count').notNull().default(6),
+  establishedLoanPaymentCount: integer('established_loan_payment_count').notNull().default(3),
+  normalPaymentRangeMultiplier: real('normal_payment_range_multiplier').notNull().default(1.5),
+  suppressionsEnabled: integer('suppressions_enabled', { mode: 'boolean' }).notNull().default(true),
+  updatedAt: text('updated_at').notNull(),
+});
+
+// Signals that were detected but suppressed (not turned into an alert) — audit trail
+// for false-positive-reduction tuning. See PROJECT.md "Suppression" section.
+export const suppressionLog = sqliteTable('suppression_log', {
+  id: text('id').primaryKey(),
+  loanId: text('loan_id').notNull(),
+  engine: text('engine').notNull(), // 'FRAUD' | 'AML'
+  scenario: text('scenario').notNull(),
+  reason: text('reason').notNull(),
+  value: text('value'),
+  createdAt: text('created_at').notNull(),
+});
