@@ -40,6 +40,9 @@ export interface BraintreeTransaction {
   paymentMethodSnapshot?: {
     last4?: string;
     bin?: string;
+    brandCode?: string;
+    /** Braintree-issued fingerprint of the card number — stable across re-entries of the same card. */
+    uniqueNumberIdentifier?: string;
     expirationMonth?: string;
     expirationYear?: string;
     cardholderName?: string;
@@ -60,6 +63,15 @@ export interface BraintreeTransaction {
   riskData?: { decision?: string; id?: string; deviceDataCaptured?: boolean };
 }
 
+// Shape of Transaction.processorAuthorizationResponse (TransactionAuthorizationProcessorResponse) on the live schema.
+interface ProcessorAuthorizationResponse {
+  legacyCode?: string | null;
+  message?: string | null;
+  cvvResponse?: string | null;
+  avsPostalCodeResponse?: string | null;
+  avsStreetAddressResponse?: string | null;
+}
+
 // node(id) requires unpadded base64 global ID: base64("transaction_<legacyId>") with = stripped.
 const TRANSACTION_QUERY = `
   query GetTransaction($id: ID!) {
@@ -72,18 +84,21 @@ const TRANSACTION_QUERY = `
         createdAt
         orderId
         merchantAccountId
-        gatewayRejectionReason
-        processorResponseCode
-        processorResponseText
-        avsPostalCodeResponseCode
-        avsStreetAddressResponseCode
-        cvvResponseCode
+        processorAuthorizationResponse {
+          legacyCode
+          message
+          cvvResponse
+          avsPostalCodeResponse
+          avsStreetAddressResponse
+        }
         riskData { decision id deviceDataCaptured }
         customer { firstName lastName }
         paymentMethodSnapshot {
           ... on CreditCardDetails {
             last4
             bin
+            brandCode
+            uniqueNumberIdentifier
             expirationMonth
             expirationYear
             cardholderName
@@ -105,8 +120,20 @@ export async function getTransaction(id: string): Promise<BraintreeTransaction |
   const globalId = id.length > 20
     ? id
     : Buffer.from(`transaction_${id}`).toString('base64').replace(/=/g, '');
-  const data = await gql<{ node: BraintreeTransaction | null }>(TRANSACTION_QUERY, { id: globalId });
-  return data.node;
+  const data = await gql<{ node: (BraintreeTransaction & { processorAuthorizationResponse?: ProcessorAuthorizationResponse | null }) | null }>(
+    TRANSACTION_QUERY, { id: globalId }
+  );
+  const raw = data.node;
+  if (!raw) return null;
+  const { processorAuthorizationResponse: pr, ...tx } = raw;
+  return {
+    ...tx,
+    ...(pr?.legacyCode && { processorResponseCode: pr.legacyCode }),
+    ...(pr?.message && { processorResponseText: pr.message }),
+    ...(pr?.cvvResponse && { cvvResponseCode: pr.cvvResponse }),
+    ...(pr?.avsPostalCodeResponse && { avsPostalCodeResponseCode: pr.avsPostalCodeResponse }),
+    ...(pr?.avsStreetAddressResponse && { avsStreetAddressResponseCode: pr.avsStreetAddressResponse }),
+  };
 }
 
 /** Flattens a Braintree transaction into the compact shape stored as `alerts.braintreeSignals`. */
@@ -128,6 +155,47 @@ export function toBraintreeSignals(tx: BraintreeTransaction): Record<string, unk
     ...(tx.paymentMethodSnapshot?.binData?.countryOfIssuance && { cardCountry: tx.paymentMethodSnapshot.binData.countryOfIssuance }),
     ...(tx.paymentMethodSnapshot?.binData?.issuingBank && { issuingBank: tx.paymentMethodSnapshot.binData.issuingBank }),
   };
+}
+
+/**
+ * Stable funding-source key for a card transaction. Prefers Braintree's uniqueNumberIdentifier
+ * (a fingerprint of the card number, so the same card re-entered is still one source); falls back
+ * to BIN + last4 when the fingerprint isn't returned.
+ */
+export function fundingSourceKey(tx: BraintreeTransaction): string | null {
+  const { uniqueNumberIdentifier, brandCode, bin, last4 } = tx.paymentMethodSnapshot ?? {};
+  if (uniqueNumberIdentifier) return `${brandCode ?? 'card'}-${uniqueNumberIdentifier}`;
+  return bin && last4 ? `${bin}-${last4}` : null;
+}
+
+// A settled transaction's card never changes, so resolved keys are cached for the process lifetime.
+const fundingSourceCache = new Map<string, string>();
+const FUNDING_LOOKUP_CONCURRENCY = 5;
+
+/**
+ * Resolves PNREF (legacyId) → funding-source key. PNREFs whose lookup fails or has no
+ * card details are omitted from the result (callers treat them as "unknown source").
+ */
+export async function getFundingSources(pnrefs: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  const missing: string[] = [];
+  for (const id of new Set(pnrefs)) {
+    const hit = fundingSourceCache.get(id);
+    if (hit) result.set(id, hit);
+    else missing.push(id);
+  }
+  for (let i = 0; i < missing.length; i += FUNDING_LOOKUP_CONCURRENCY) {
+    await Promise.all(
+      missing.slice(i, i + FUNDING_LOOKUP_CONCURRENCY).map(async (id) => {
+        try {
+          const tx = await getTransaction(id);
+          const key = tx ? fundingSourceKey(tx) : null;
+          if (key) { fundingSourceCache.set(id, key); result.set(id, key); }
+        } catch { /* non-fatal — source stays unknown */ }
+      })
+    );
+  }
+  return result;
 }
 
 export const capabilityTier = (process.env['BT_CAPABILITY_TIER'] ?? 'basic') as

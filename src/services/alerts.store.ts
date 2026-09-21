@@ -1,7 +1,9 @@
 import { db } from '../db/index.js';
 import { alerts, alertNotes, auditLog } from '../db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
+import { DEFAULT_SETTINGS } from './settings.service.js';
+import logger from '../utils/logger.js';
 
 export interface CreateAlertInput {
   type: string;
@@ -18,14 +20,50 @@ function now() {
   return new Date().toISOString();
 }
 
+const ACTIVE_STATUSES = ['OPEN', 'UNDER_REVIEW', 'ESCALATED'];
+
+/** Fraud signals are keyed by `rule`, AML signals by `scenario`. */
+function signalKey(s: unknown): string {
+  const x = s as { rule?: string; scenario?: string };
+  return x.rule ?? x.scenario ?? '';
+}
+
 /**
- * Creates a new alert or merges into an existing OPEN alert for the same loanId+type.
- * Prevents duplicate rows when multiple settlements on the same loan all trigger the same rule.
+ * Creates a new alert, or folds the evaluation into an existing one:
+ *  1. Cooldown — if an active (OPEN/UNDER_REVIEW/ESCALATED) alert for the same loanId+type already
+ *     covers every incoming signal and was last seen within `cooldownMinutes`, no new alert is
+ *     created; its recurrenceCount/lastSeenAt are bumped instead. Because lastSeenAt slides on each
+ *     re-fire, a pattern that keeps firing stays quiet until it has been absent for a full window.
+ *  2. Otherwise, merges into an existing OPEN alert for the same loanId+type (new signals only).
+ *  3. Otherwise creates a new alert.
  */
-export async function upsertAlert(input: CreateAlertInput) {
-  const existing = await db.select().from(alerts)
-    .where(and(eq(alerts.loanId, input.loanId), eq(alerts.type, input.type), eq(alerts.status, 'OPEN')))
-    .get();
+export async function upsertAlert(input: CreateAlertInput, cooldownMinutes = DEFAULT_SETTINGS.cooldownMinutes) {
+  const active = await db.select().from(alerts)
+    .where(and(eq(alerts.loanId, input.loanId), eq(alerts.type, input.type), inArray(alerts.status, ACTIVE_STATUSES)))
+    .all();
+
+  const incomingKeys = input.signals.map(signalKey);
+  const cutoff = new Date(Date.now() - cooldownMinutes * 60_000).toISOString();
+  const covering = cooldownMinutes > 0
+    ? active.find((a) => {
+        if ((a.lastSeenAt ?? a.createdAt) < cutoff) return false;
+        const have = new Set((JSON.parse(a.signals) as unknown[]).map(signalKey));
+        return incomingKeys.every((k) => have.has(k));
+      })
+    : undefined;
+
+  if (covering) {
+    const timestamp = now();
+    await db.update(alerts).set({
+      transactionIds: JSON.stringify(Array.from(new Set([...(JSON.parse(covering.transactionIds) as string[]), ...input.transactionIds]))),
+      recurrenceCount: covering.recurrenceCount + 1,
+      lastSeenAt: timestamp,
+    }).where(eq(alerts.id, covering.id));
+    logger.info(`Alert cooldown: loan=${input.loanId} type=${input.type} already covered by alert ${covering.id} (recurrence ${covering.recurrenceCount + 1})`);
+    return getAlert(covering.id);
+  }
+
+  const existing = active.find((a) => a.status === 'OPEN');
 
   if (existing) {
     const timestamp = now();
@@ -48,6 +86,7 @@ export async function upsertAlert(input: CreateAlertInput) {
       riskScore: newScore,
       severity: newScore >= 75 ? 'CRITICAL' : newScore >= 50 ? 'HIGH' : newScore >= 25 ? 'MEDIUM' : 'LOW',
       updatedAt: timestamp,
+      lastSeenAt: timestamp,
     }).where(eq(alerts.id, existing.id));
     return getAlert(existing.id);
   }
@@ -71,6 +110,7 @@ export async function createAlert(input: CreateAlertInput) {
     braintreeSignals: JSON.stringify(input.braintreeSignals),
     createdAt: timestamp,
     updatedAt: timestamp,
+    lastSeenAt: timestamp,
   });
   return getAlert(id);
 }
@@ -130,6 +170,8 @@ function mapAlert(
     signals: JSON.parse(row.signals) as unknown[],
     braintreeSignals: JSON.parse(row.braintreeSignals) as unknown,
     notes: notes.map((n) => ({ id: n.id, alertId: n.alertId, text: n.text, createdAt: n.createdAt })),
+    recurrenceCount: row.recurrenceCount,
+    lastSeenAt: row.lastSeenAt ?? row.createdAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

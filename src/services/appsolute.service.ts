@@ -5,7 +5,7 @@
 //
 // DEV_MOCK_BORROWER=true  — returns synthetic data when DB is unreachable (dev/offline only).
 import { getPool, sql } from './db.service.js';
-import { getDisputedTransactionIds } from './braintree.service.js';
+import { getDisputedTransactionIds, getFundingSources } from './braintree.service.js';
 import logger from '../utils/logger.js';
 
 const DEV_MOCK = process.env['DEV_MOCK_BORROWER'] === 'true';
@@ -20,7 +20,10 @@ export interface BorrowerContext {
 export interface PaymentHistory {
   transactionId: string;
   amount: number;
+  /** PNREF (AFS auth reference). Used ONLY for self-exclusion in fraud duplicate detection — never for AML source counting. */
   paymentMethod: string;
+  /** Real funding-source identity (BIN-last4). Undefined when it could not be resolved. */
+  fundingSource?: string;
   orderId?: string;
   createdAt: string;
   status: string;
@@ -103,8 +106,8 @@ const HISTORY_QUERY = `
   SELECT
     CAST(t.TransactionId AS NVARCHAR(50))    AS TransactionId,
     CAST(s.SettleAmt AS FLOAT)               AS Amount,
-    -- Use Auth PNREFCode as payment-method proxy; distinct PNREFs indicate
-    -- distinct payment instruments (Phase 3: replace with card token / bank acct ref)
+    -- PNREFCode is kept as a transaction reference (paymentMethod); the real funding
+    -- source is resolved per PNREF from Braintree (see getFundingSources).
     ISNULL(a.PNREFCode, 'UNKNOWN')           AS PaymentMethod,
     CONVERT(NVARCHAR(30), s.CreateDate, 127) AS CreatedAt,
     'SETTLED'                                AS Status,
@@ -128,6 +131,7 @@ export async function getPaymentHistory(loanId: string, windowDays = 30): Promis
       transactionId: `mock-txn-${i}`,
       amount: 2500,
       paymentMethod: 'ACH-001',
+      fundingSource: 'ACH-001',
       createdAt: new Date(now.getTime() - i * 2 * 86_400_000).toISOString(),
       status: 'SETTLED',
       isRefund: false,
@@ -152,10 +156,15 @@ export async function getPaymentHistory(loanId: string, windowDays = 30): Promis
     const legacyIds = res.recordset.map(r => String(r.TransactionId));
     const disputedIds = await getDisputedTransactionIds(legacyIds);
 
+    const fundingSources = await getFundingSources(
+      res.recordset.map((r) => String(r.PaymentMethod)).filter((p) => p !== 'UNKNOWN')
+    );
+
     const result: PaymentHistory[] = res.recordset.map((row) => ({
       transactionId: String(row.TransactionId),
       amount: Number(row.Amount),
       paymentMethod: String(row.PaymentMethod),
+      ...(fundingSources.has(String(row.PaymentMethod)) && { fundingSource: fundingSources.get(String(row.PaymentMethod))! }),
       createdAt: String(row.CreatedAt),
       status: String(row.Status),
       isRefund: Boolean(row.IsRefund),

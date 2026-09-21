@@ -6,6 +6,7 @@ import { evaluateAml, getScenarioConfigs } from '../services/aml-engine.service.
 import { upsertAlert as createAlert } from '../services/alerts.store.js';
 import { getSettings } from '../services/settings.service.js';
 import { logSuppressions } from '../services/suppression-log.service.js';
+import { recordMonitor } from '../services/monitor.store.js';
 
 const router = Router();
 
@@ -39,6 +40,7 @@ router.post('/webhook/transaction', async (req, res) => {
     const aml = evaluateAml(tx, borrower, history, scenarioConfigs, settings);
     void logSuppressions(loanId, fraud.suppressed.map(s => ({ scenario: s.rule, reason: s.reason, value: s.value })), 'FRAUD');
     void logSuppressions(loanId, aml.suppressed, 'AML');
+    if (aml.monitor) await recordMonitor({ loanId, borrowerId, transactionIds: [transactionId], riskScore: aml.riskScore, signals: aml.signals });
 
     const btSignals = toBraintreeSignals(tx);
 
@@ -55,7 +57,7 @@ router.post('/webhook/transaction', async (req, res) => {
           riskScore: fraud.riskScore,
           signals: fraud.signals,
           braintreeSignals: btSignals,
-        })
+        }, settings.cooldownMinutes)
       );
     }
 
@@ -70,7 +72,7 @@ router.post('/webhook/transaction', async (req, res) => {
           riskScore: aml.riskScore,
           signals: aml.signals,
           braintreeSignals: btSignals,
-        })
+        }, settings.cooldownMinutes)
       );
     }
 

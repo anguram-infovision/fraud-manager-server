@@ -19,10 +19,15 @@ export interface SuppressedSignal {
 
 export interface AmlEvaluation {
   triggered: boolean;
+  /** Below the alert threshold but ≥ MONITOR_MIN_SCORE — recorded as a monitor-tier record, not an alert. */
+  monitor: boolean;
   riskScore: number;
   signals: AmlRiskSignal[];
   suppressed: SuppressedSignal[];
 }
+
+/** Lowest AML score worth recording (one fired scenario = 25). */
+export const MONITOR_MIN_SCORE = 25;
 
 export interface ScenarioConfig {
   enabled: boolean;
@@ -63,6 +68,16 @@ export const DEFAULT_CONFIGS: ScenarioConfigs = {
 };
 
 /**
+ * Number of distinct calendar days on which the loan had a settled (non-refund) payment.
+ * Maturity is measured in payment DAYS, not raw payments: a burst of identical charges within
+ * minutes is one day of history, so a repeated suspicious pattern cannot vouch for itself by
+ * "establishing" the track record that would then suppress it.
+ */
+export function countPaymentDays(history: PaymentHistory[]): number {
+  return new Set(history.filter((h) => !h.isRefund).map((h) => h.createdAt.slice(0, 10))).size;
+}
+
+/**
  * Per PROJECT.md Section 5 — a borrower with MATURE history (matureLoanPaymentCount+
  * settled payments) should be evaluated against their own baseline, not a static
  * threshold. NEW/INSUFFICIENT_HISTORY borrowers should only trigger on high-confidence
@@ -70,10 +85,10 @@ export const DEFAULT_CONFIGS: ScenarioConfigs = {
  * suppression, which requires established history to be meaningful).
  */
 export function getBaselineMaturity(history: PaymentHistory[], settings: SystemSettings): BaselineMaturity {
-  const paymentCount = history.filter((h) => !h.isRefund).length;
-  if (paymentCount >= settings.matureLoanPaymentCount) return 'MATURE';
-  if (paymentCount >= settings.establishedLoanPaymentCount) return 'ESTABLISHED';
-  if (paymentCount >= 1) return 'INSUFFICIENT_HISTORY';
+  const paymentDays = countPaymentDays(history);
+  if (paymentDays >= settings.matureLoanPaymentCount) return 'MATURE';
+  if (paymentDays >= settings.establishedLoanPaymentCount) return 'ESTABLISHED';
+  if (paymentDays >= 1) return 'INSUFFICIENT_HISTORY';
   return 'NEW';
 }
 
@@ -104,15 +119,33 @@ export function evaluateAml(
 
   const mpsConfig = configs['MULTIPLE_PAYMENT_SOURCES'];
   if (mpsConfig?.enabled) {
-    const uniqueSources = new Set(history.map((h) => h.paymentMethod)).size;
+    // Counts real funding sources (h.fundingSource, e.g. BIN-last4) inside windowDays —
+    // NOT h.paymentMethod, which holds the per-transaction PNREF. Payments whose source
+    // could not be resolved are ignored rather than counted as distinct.
+    const windowDays = mpsConfig.parameters['windowDays'] ?? 7;
     const threshold = mpsConfig.parameters['minimumSources'] ?? 3;
-    if (uniqueSources >= threshold) {
-      signals.push({
-        scenario: 'MULTIPLE_PAYMENT_SOURCES',
-        description: `${uniqueSources} distinct payment methods detected on loan ${borrower.loanId}.`,
-        value: uniqueSources,
-        threshold,
-      });
+    const cutoff = new Date(Date.now() - windowDays * 86_400_000).toISOString();
+    const withSource = history.filter((h) => !h.isRefund && h.fundingSource);
+    const windowSources = new Set(withSource.filter((h) => h.createdAt >= cutoff).map((h) => h.fundingSource!));
+    if (windowSources.size >= threshold) {
+      // Sources already seen before the window by a borrower with ESTABLISHED/MATURE
+      // history are the borrower's known instruments, not funding-source rotation.
+      const priorSources = new Set(withSource.filter((h) => h.createdAt < cutoff).map((h) => h.fundingSource!));
+      const allKnown = [...windowSources].every((s) => priorSources.has(s));
+      if (settings.suppressionsEnabled && (maturity === 'ESTABLISHED' || maturity === 'MATURE') && allKnown) {
+        suppressed.push({
+          scenario: 'MULTIPLE_PAYMENT_SOURCES',
+          reason: `${windowSources.size} payment sources in ${windowDays}d, but all were already used earlier and borrower has ${maturity} history — known instruments, not flagged.`,
+          value: windowSources.size,
+        });
+      } else {
+        signals.push({
+          scenario: 'MULTIPLE_PAYMENT_SOURCES',
+          description: `${windowSources.size} distinct payment sources used within ${windowDays} days on loan ${borrower.loanId}.`,
+          value: windowSources.size,
+          threshold,
+        });
+      }
     }
   }
 
@@ -157,7 +190,7 @@ export function evaluateAml(
       if (settings.suppressionsEnabled && maturity === 'MATURE') {
         suppressed.push({
           scenario: 'AMOUNT_DEVIATION',
-          reason: `Payment of $${amount.toFixed(2)} exceeds ${multiplier}× expected, but borrower has MATURE payment history (${history.filter((h) => !h.isRefund).length} payments) — likely legitimate principal/catch-up payment.`,
+          reason: `Payment of $${amount.toFixed(2)} exceeds ${multiplier}× expected, but borrower has MATURE payment history (payments on ${countPaymentDays(history)} distinct days) — likely legitimate principal/catch-up payment.`,
           value: amount.toFixed(2),
         });
       } else {
@@ -217,5 +250,6 @@ export function evaluateAml(
   // Per PROJECT.md Section 12 target architecture: a single signal must NOT create an
   // alert. Only correlated signals (score ≥ amlAlertThreshold) do.
   const triggered = riskScore >= settings.amlAlertThreshold;
-  return { triggered, riskScore, signals, suppressed };
+  const monitor = !triggered && riskScore >= MONITOR_MIN_SCORE;
+  return { triggered, monitor, riskScore, signals, suppressed };
 }

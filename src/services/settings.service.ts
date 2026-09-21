@@ -8,6 +8,8 @@ export interface SystemSettings {
   establishedLoanPaymentCount: number;
   normalPaymentRangeMultiplier: number;
   suppressionsEnabled: boolean;
+  /** Re-fires of an already-alerted pattern within this many minutes don't create a new alert. 0 disables. */
+  cooldownMinutes: number;
 }
 
 export const DEFAULT_SETTINGS: SystemSettings = {
@@ -16,6 +18,7 @@ export const DEFAULT_SETTINGS: SystemSettings = {
   establishedLoanPaymentCount: 3,
   normalPaymentRangeMultiplier: 1.5,
   suppressionsEnabled: true,
+  cooldownMinutes: 60,
 };
 
 // Short in-process cache — settings are read on every sync tick / webhook call.
@@ -33,6 +36,7 @@ export async function getSettings(): Promise<SystemSettings> {
         establishedLoanPaymentCount: row.establishedLoanPaymentCount,
         normalPaymentRangeMultiplier: row.normalPaymentRangeMultiplier,
         suppressionsEnabled: row.suppressionsEnabled,
+        cooldownMinutes: row.cooldownMinutes,
       }
     : DEFAULT_SETTINGS;
 

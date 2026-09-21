@@ -18,6 +18,7 @@ import { evaluateAml, getScenarioConfigs } from './aml-engine.service.js';
 import { upsertAlert, listAlerts } from './alerts.store.js';
 import { getSettings } from './settings.service.js';
 import { logSuppressions } from './suppression-log.service.js';
+import { recordMonitor } from './monitor.store.js';
 import logger from '../utils/logger.js';
 
 // const POLL_INTERVAL_MS = 5 * 60 * 1000; // Every 5 minutes
@@ -115,6 +116,7 @@ async function syncOnce(): Promise<void> {
         const aml   = evaluateAml(tx, borrower, history, scenarioConfigs, settings);
         void logSuppressions(loanId, fraud.suppressed.map(s => ({ scenario: s.rule, reason: s.reason, value: s.value })), 'FRAUD');
         void logSuppressions(loanId, aml.suppressed, 'AML');
+        if (aml.monitor) await recordMonitor({ loanId, borrowerId: borrower.borrowerId, transactionIds: [pnref], riskScore: aml.riskScore, signals: aml.signals });
 
         const alertPromises: Promise<unknown>[] = [];
 
@@ -128,7 +130,7 @@ async function syncOnce(): Promise<void> {
             riskScore: fraud.riskScore,
             signals: fraud.signals,
             braintreeSignals: btSignals,
-          }));
+          }, settings.cooldownMinutes));
         }
 
         if (aml.triggered) {
@@ -141,7 +143,7 @@ async function syncOnce(): Promise<void> {
             riskScore: aml.riskScore,
             signals: aml.signals,
             braintreeSignals: btSignals,
-          }));
+          }, settings.cooldownMinutes));
         }
 
         if (alertPromises.length) {

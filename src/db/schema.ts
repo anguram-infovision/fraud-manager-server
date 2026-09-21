@@ -13,6 +13,9 @@ export const alerts = sqliteTable('alerts', {
   braintreeSignals: text('braintree_signals').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  // Cooldown bookkeeping: re-fires of an already-alerted pattern bump these instead of creating a new alert.
+  recurrenceCount: integer('recurrence_count').notNull().default(0),
+  lastSeenAt: text('last_seen_at'),
 });
 
 export const alertNotes = sqliteTable('alert_notes', {
@@ -49,6 +52,23 @@ export const systemSettings = sqliteTable('system_settings', {
   establishedLoanPaymentCount: integer('established_loan_payment_count').notNull().default(3),
   normalPaymentRangeMultiplier: real('normal_payment_range_multiplier').notNull().default(1.5),
   suppressionsEnabled: integer('suppressions_enabled', { mode: 'boolean' }).notNull().default(true),
+  cooldownMinutes: integer('cooldown_minutes').notNull().default(60),
+  updatedAt: text('updated_at').notNull(),
+});
+
+// AML evaluations that scored below the alert threshold but ≥ 25 (at least one fired scenario).
+// Not alerts: never in the analyst OPEN queue. Deduped per loan + fired-scenario set.
+export const monitorRecords = sqliteTable('monitor_records', {
+  id: text('id').primaryKey(),
+  loanId: text('loan_id').notNull(),
+  borrowerId: text('borrower_id').notNull(),
+  engine: text('engine').notNull(), // 'AML'
+  tier: text('tier').notNull().default('MONITOR'),
+  scenarioKey: text('scenario_key').notNull(), // sorted, comma-joined fired scenarios
+  transactionIds: text('transaction_ids').notNull(),
+  riskScore: real('risk_score').notNull(),
+  signals: text('signals').notNull(),
+  createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
 
