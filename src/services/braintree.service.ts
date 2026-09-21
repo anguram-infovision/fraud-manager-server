@@ -12,7 +12,11 @@ const GQL_URL =
 
 const authHeader = Buffer.from(`${PUBLIC_KEY}:${PRIVATE_KEY}`).toString('base64');
 
+const GQL_TIMEOUT_MS = 20_000;
+
 async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+  // BT_OFFLINE=true short-circuits every Braintree call (used by scripts/alert-comparison.ts --no-braintree).
+  if (process.env['BT_OFFLINE'] === 'true') throw new Error('Braintree offline mode');
   const res = await axios.post<{ data: T; errors?: unknown[] }>(
     GQL_URL,
     { query, variables },
@@ -22,6 +26,7 @@ async function gql<T>(query: string, variables?: Record<string, unknown>): Promi
         'Braintree-Version': '2019-01-01',
         'Content-Type': 'application/json',
       },
+      timeout: GQL_TIMEOUT_MS,
     }
   );
   if (res.data.errors?.length) throw new Error(JSON.stringify(res.data.errors));
