@@ -226,20 +226,23 @@ export function evaluateAml(
     const todayStart = new Date(new Date(tx.createdAt).toDateString()).toISOString();
     const todayPayments = history.filter((h) => !h.isRefund && h.createdAt >= todayStart);
     if (todayPayments.length > maxPayments) {
+      // History already includes the payment being evaluated (the trigger above compares its length
+      // directly), so the count reported must not add the current payment a second time.
+      const sameDayCount = todayPayments.length;
       const txAmount = parseFloat(tx.amount.value);
       const allNormalSized =
         normalCeiling <= 0 || (txAmount <= normalCeiling && todayPayments.every((h) => h.amount <= normalCeiling));
       if (settings.suppressionsEnabled && allNormalSized) {
         suppressed.push({
           scenario: 'SAME_DAY_VELOCITY',
-          reason: `${todayPayments.length + 1} same-day payments but all within normal EMI size (≤${normalCeiling.toFixed(2)}) — e.g. borrower paying 2-3× EMI same day, not flagged.`,
-          value: todayPayments.length + 1,
+          reason: `${sameDayCount} same-day payments but all within normal EMI size (≤${normalCeiling.toFixed(2)}) — e.g. borrower paying 2-3× EMI same day, not flagged.`,
+          value: sameDayCount,
         });
       } else {
         signals.push({
           scenario: 'SAME_DAY_VELOCITY',
-          description: `${todayPayments.length + 1} payments on loan ${borrower.loanId} within the same calendar day.`,
-          value: todayPayments.length + 1,
+          description: `${sameDayCount} payments on loan ${borrower.loanId} within the same calendar day.`,
+          value: sameDayCount,
           threshold: maxPayments,
         });
       }

@@ -76,3 +76,16 @@ test('maturity counts distinct payment DAYS — a same-day burst does not build 
   const spread = Array.from({ length: 6 }, (_, i) => pay(i, '411111-1111'));
   assert.equal(getBaselineMaturity(spread, DEFAULT_SETTINGS), 'MATURE');
 });
+
+test('same-day velocity reports the true count (history already includes the current payment)', () => {
+  const three = [pay(0, '411111-1111'), pay(0, '411111-1111'), pay(0, '411111-1111')];
+  const suppressed = evaluateAml(tx, borrower, three);
+  const s = suppressed.suppressed.find((x) => x.scenario === 'SAME_DAY_VELOCITY');
+  assert.equal(s?.value, 3);
+  assert.match(s!.reason, /^3 same-day payments/);
+
+  const fired = evaluateAml(tx, borrower, three, undefined, { ...DEFAULT_SETTINGS, suppressionsEnabled: false });
+  const f = fired.signals.find((x) => x.scenario === 'SAME_DAY_VELOCITY');
+  assert.equal(f?.value, 3);
+  assert.match(f!.description, /^3 payments on loan/);
+});
