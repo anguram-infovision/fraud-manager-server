@@ -4,6 +4,7 @@ import { eq, and, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { DEFAULT_SETTINGS } from './settings.service.js';
 import logger from '../utils/logger.js';
+import { renderNarrative, type NarrativeContext, type NarrativeSignal } from './narrative.service.js';
 
 export interface CreateAlertInput {
   type: string;
@@ -14,6 +15,8 @@ export interface CreateAlertInput {
   riskScore: number;
   signals: unknown[];
   braintreeSignals: unknown;
+  /** Baseline snapshot used to (re)generate the alert narrative. */
+  narrativeContext?: NarrativeContext;
 }
 
 function now() {
@@ -71,12 +74,11 @@ export async function upsertAlert(input: CreateAlertInput, cooldownMinutes = DEF
       ...(JSON.parse(existing.transactionIds) as string[]),
       ...input.transactionIds,
     ]));
-    const existingSignals = JSON.parse(existing.signals) as { rule: string; description: string; value: unknown }[];
-    const incomingSignals = input.signals as { rule: string; description: string; value: unknown }[];
-    const seenRules = new Set(existingSignals.map(s => s.rule));
+    const existingSignals = JSON.parse(existing.signals) as unknown[];
+    const seenKeys = new Set(existingSignals.map(signalKey));
     const mergedSignals = [
       ...existingSignals,
-      ...incomingSignals.filter(s => !seenRules.has(s.rule)),
+      ...input.signals.filter((s) => !seenKeys.has(signalKey(s))),
     ];
     const scoreMultiplier = existing.type === 'FRAUD' ? 30 : 25;
     const newScore = Math.min(100, mergedSignals.length * scoreMultiplier);
@@ -87,6 +89,8 @@ export async function upsertAlert(input: CreateAlertInput, cooldownMinutes = DEF
       severity: newScore >= 75 ? 'CRITICAL' : newScore >= 50 ? 'HIGH' : newScore >= 25 ? 'MEDIUM' : 'LOW',
       updatedAt: timestamp,
       lastSeenAt: timestamp,
+      // Signals changed → refresh the explanation so it never describes fewer signals than the alert holds.
+      ...(input.narrativeContext && { narrative: renderNarrative(existing.type, mergedSignals as NarrativeSignal[], input.narrativeContext) }),
     }).where(eq(alerts.id, existing.id));
     return getAlert(existing.id);
   }
@@ -111,6 +115,7 @@ export async function createAlert(input: CreateAlertInput) {
     createdAt: timestamp,
     updatedAt: timestamp,
     lastSeenAt: timestamp,
+    narrative: input.narrativeContext ? renderNarrative(input.type, input.signals as NarrativeSignal[], input.narrativeContext) : null,
   });
   return getAlert(id);
 }
@@ -170,6 +175,7 @@ function mapAlert(
     signals: JSON.parse(row.signals) as unknown[],
     braintreeSignals: JSON.parse(row.braintreeSignals) as unknown,
     notes: notes.map((n) => ({ id: n.id, alertId: n.alertId, text: n.text, createdAt: n.createdAt })),
+    narrative: row.narrative,
     recurrenceCount: row.recurrenceCount,
     lastSeenAt: row.lastSeenAt ?? row.createdAt,
     createdAt: row.createdAt,

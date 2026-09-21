@@ -19,6 +19,7 @@ import { upsertAlert, listAlerts } from './alerts.store.js';
 import { getSettings } from './settings.service.js';
 import { logSuppressions } from './suppression-log.service.js';
 import { recordMonitor } from './monitor.store.js';
+import { buildNarrativeContext } from './narrative.service.js';
 import logger from '../utils/logger.js';
 
 // const POLL_INTERVAL_MS = 5 * 60 * 1000; // Every 5 minutes
@@ -118,6 +119,7 @@ async function syncOnce(): Promise<void> {
         void logSuppressions(loanId, aml.suppressed, 'AML');
         if (aml.monitor) await recordMonitor({ loanId, borrowerId: borrower.borrowerId, transactionIds: [pnref], riskScore: aml.riskScore, signals: aml.signals });
 
+        const narrativeContext = buildNarrativeContext(borrower, history, settings, tx);
         const alertPromises: Promise<unknown>[] = [];
 
         if (fraud.triggered) {
@@ -130,6 +132,7 @@ async function syncOnce(): Promise<void> {
             riskScore: fraud.riskScore,
             signals: fraud.signals,
             braintreeSignals: btSignals,
+            narrativeContext,
           }, settings.cooldownMinutes));
         }
 
@@ -143,6 +146,7 @@ async function syncOnce(): Promise<void> {
             riskScore: aml.riskScore,
             signals: aml.signals,
             braintreeSignals: btSignals,
+            narrativeContext,
           }, settings.cooldownMinutes));
         }
 

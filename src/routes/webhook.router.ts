@@ -7,6 +7,7 @@ import { upsertAlert as createAlert } from '../services/alerts.store.js';
 import { getSettings } from '../services/settings.service.js';
 import { logSuppressions } from '../services/suppression-log.service.js';
 import { recordMonitor } from '../services/monitor.store.js';
+import { buildNarrativeContext } from '../services/narrative.service.js';
 
 const router = Router();
 
@@ -44,6 +45,7 @@ router.post('/webhook/transaction', async (req, res) => {
 
     const btSignals = toBraintreeSignals(tx);
 
+    const narrativeContext = buildNarrativeContext(borrower, history, settings, tx);
     const alertPromises: Promise<unknown>[] = [];
 
     if (fraud.triggered) {
@@ -57,6 +59,7 @@ router.post('/webhook/transaction', async (req, res) => {
           riskScore: fraud.riskScore,
           signals: fraud.signals,
           braintreeSignals: btSignals,
+          narrativeContext,
         }, settings.cooldownMinutes)
       );
     }
@@ -72,6 +75,7 @@ router.post('/webhook/transaction', async (req, res) => {
           riskScore: aml.riskScore,
           signals: aml.signals,
           braintreeSignals: btSignals,
+          narrativeContext,
         }, settings.cooldownMinutes)
       );
     }

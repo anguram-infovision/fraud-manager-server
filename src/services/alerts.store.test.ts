@@ -60,6 +60,15 @@ test('cooldownMinutes = 0 disables the cooldown for non-OPEN alerts', async () =
   assert.equal((await rows('L-zero')).length, 2);
 });
 
+test('a genuinely new scenario is not swallowed: merged into the OPEN alert', async () => {
+  await upsertAlert(aml('L-new', ['AMOUNT_DEVIATION', 'MULTIPLE_PAYMENT_SOURCES', 'SAME_DAY_VELOCITY'], 'PN-1'), 60);
+  await upsertAlert(aml('L-new', ['AMOUNT_DEVIATION', 'REFUND_DISPUTE_CYCLE', 'PAYMENT_VELOCITY'], 'PN-2'), 60);
+  const r = await rows('L-new');
+  assert.equal(r.length, 1);
+  assert.equal(JSON.parse(r[0]!.signals).length, 5);
+  assert.equal(r[0]!.riskScore, 100); // 5 × 25 capped at 100
+});
+
 test('different loans and different types are independent', async () => {
   await upsertAlert(aml('L-a', THREE, 'PN-1'), 60);
   await upsertAlert(aml('L-b', THREE, 'PN-2'), 60);
@@ -71,3 +80,18 @@ test('different loans and different types are independent', async () => {
 // Best-effort: Windows keeps the libsql file locked until the process exits (temp dir gets cleaned by the OS).
 test.after(() => { try { rmSync(dbPath, { force: true }); } catch { /* locked */ } });
 
+test('narrative is stored on create and refreshed when new signals merge into the OPEN alert', async () => {
+  const ctx = { loanId: 'L-narr', expectedMonthlyPayment: 2500, maturity: 'ESTABLISHED' as const, paymentCount: 4 };
+  const withSig = (scenarios: string[], tx: string) => ({
+    ...aml('L-narr', scenarios, tx),
+    signals: scenarios.map((s) => ({ scenario: s, description: s, value: 3, threshold: 1 })),
+    narrativeContext: ctx,
+  });
+  const first = await upsertAlert(withSig(['MULTIPLE_PAYMENT_SOURCES', 'SAME_DAY_VELOCITY', 'PAYMENT_VELOCITY'], 'PN-1'), 60);
+  assert.match(first!.narrative!, /^Loan L-narr: Expected payment is \$2,500\.00\/month/);
+  assert.match(first!.narrative!, /Flagged: multiple payment sources, repeated same-day payments, high payment frequency\.$/);
+
+  const merged = await upsertAlert(withSig(['MULTIPLE_PAYMENT_SOURCES', 'REFUND_DISPUTE_CYCLE', 'PAYMENT_VELOCITY'], 'PN-2'), 60);
+  assert.match(merged!.narrative!, /refund and dispute pattern/);
+  assert.match(merged!.narrative!, /repeated same-day payments/); // earlier signals still described
+});

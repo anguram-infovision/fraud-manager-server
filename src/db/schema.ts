@@ -16,6 +16,8 @@ export const alerts = sqliteTable('alerts', {
   // Cooldown bookkeeping: re-fires of an already-alerted pattern bump these instead of creating a new alert.
   recurrenceCount: integer('recurrence_count').notNull().default(0),
   lastSeenAt: text('last_seen_at'),
+  // Plain-English explanation (narrative.service.ts); null for alerts created before it existed.
+  narrative: text('narrative'),
 });
 
 export const alertNotes = sqliteTable('alert_notes', {

@@ -29,6 +29,13 @@
       "when": 1789985568394,
       "tag": "0003_worthless_molecule_man",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789985854226,
+      "tag": "0004_worthless_luckman",
+      "breakpoints": true
     }
   ]
 }
