@@ -71,3 +71,17 @@ test('AML narrative for a NEW / thin-history borrower states the low-confidence 
   const established = renderNarrative('AML', signals, { loanId: 'L', expectedMonthlyPayment: 2500, maturity: 'ESTABLISHED', paymentCount: 4 });
   assert.doesNotMatch(established, /reliable baseline/);
 });
+
+test('a DUPLICATE_PAYMENT signal that matches a clean catch-up multiple reads as catch-up, not duplicate-charge suspicion', () => {
+  // Suppressed catch-up cases don't normally reach the narrative (suppression happens before an
+  // alert exists) — this covers the defensive case where one shows up unsuppressed anyway (e.g.
+  // a monitor/review state, or suppressionsEnabled off) so it's still described accurately.
+  const ctx = { loanId: 'L', expectedMonthlyPayment: 2500, maturity: 'NEW' as const, paymentCount: 3, amount: 2500 };
+  const catchUp = renderNarrative('FRAUD', [{ rule: 'DUPLICATE_PAYMENT', description: '', value: 3 }], ctx);
+  assert.match(catchUp, /appears to be a multi-month catch-up payment, settling roughly 3 months at once/);
+  assert.doesNotMatch(catchUp, /submitted 3 times/);
+
+  // Not a clean multiple (2 payments, or an amount unrelated to the EMI) — old phrasing stands.
+  const notCatchUp = renderNarrative('FRAUD', [{ rule: 'DUPLICATE_PAYMENT', description: '', value: 2 }], ctx);
+  assert.match(notCatchUp, /the same amount was submitted 2 times within a short time/);
+});

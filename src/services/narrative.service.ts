@@ -2,6 +2,7 @@ import type { BorrowerContext, PaymentHistory } from './appsolute.service.js';
 import type { BraintreeTransaction } from './braintree.service.js';
 import type { SystemSettings } from './settings.service.js';
 import { getBaselineMaturity, type BaselineMaturity } from './aml-engine.service.js';
+import { catchUpMultiplier } from './fraud-engine.service.js';
 
 /** Plain-data snapshot of the baseline at evaluation time — small enough to pass through the alert store. */
 export interface NarrativeContext {
@@ -62,8 +63,16 @@ function phrase(s: NarrativeSignal, ctx: NarrativeContext): string {
       return `${v} payments landed on the loan on the same day`;
     case 'GATEWAY_REJECTION':
       return 'the payment gateway rejected the transaction';
-    case 'DUPLICATE_PAYMENT':
+    case 'DUPLICATE_PAYMENT': {
+      // Suppressed catch-up cases don't normally reach here (suppression happens before an alert
+      // is ever created), but if this signal shows up unsuppressed for any other reason — the
+      // suppression toggle is off, a future code path skips it — describe it accurately rather
+      // than implying duplicate-charge suspicion for what looks like a multi-month catch-up.
+      const count = Number(v);
+      const multiplier = ctx.amount !== undefined ? catchUpMultiplier(count, ctx.amount, ctx.expectedMonthlyPayment) : null;
+      if (multiplier) return `the payment pattern (${plural(count, 'payment')} of the same amount) appears to be a multi-month catch-up payment, settling roughly ${multiplier} months at once`;
       return `the same amount was submitted ${v} times within a short time`;
+    }
     case 'BIN_COUNTRY_MISMATCH': {
       const [card, borrower] = String(v).split(' vs ');
       return `the card was issued in ${card} while the borrower is based in ${borrower}`;

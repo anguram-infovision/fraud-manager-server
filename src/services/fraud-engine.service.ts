@@ -35,6 +35,25 @@ function binToCountry(bin: string | undefined): string | null {
   return BIN_COUNTRY[bin] ?? null;
 }
 
+/**
+ * A borrower who is behind can settle several months at once by submitting their EMI amount
+ * repeatedly in one sitting — e.g. paying $2,500 three times to cover three months. That looks
+ * identical to a triple-charge to naive duplicate detection, but `count` identical payments that
+ * sum to a clean multiple of the expected monthly payment is the signature of catching up, not
+ * fraud. Two rapid identical charges are left alone — deliberately catching up on 2 months and a
+ * genuine duplicate charge look the same at that count, so this only kicks in at 3+ occurrences,
+ * which is also when "catching up" actually means something (per PROJECT.md 2026-09-22 guidance).
+ * Shared with narrative.service.ts so the wording and the suppression logic can't drift apart.
+ */
+export function catchUpMultiplier(count: number, amount: number, expectedMonthlyPayment: number): number | null {
+  if (count < 3 || expectedMonthlyPayment <= 0) return null;
+  const sum = count * amount;
+  const multiplier = Math.round(sum / expectedMonthlyPayment);
+  if (multiplier < 2) return null;
+  const tolerance = expectedMonthlyPayment * 0.01; // 1% of one month's payment
+  return Math.abs(sum - multiplier * expectedMonthlyPayment) <= tolerance ? multiplier : null;
+}
+
 export function evaluateFraud(
   tx: BraintreeTransaction,
   history: PaymentHistory[] = [],
@@ -82,18 +101,29 @@ export function evaluateFraud(
     const isNormalSized = normalCeiling > 0 && txAmount <= normalCeiling;
     const maturity = borrower ? getBaselineMaturity(history, settings) : 'NEW';
     const hasTrackRecord = maturity === 'ESTABLISHED' || maturity === 'MATURE';
+    const totalCount = genuineDuplicates.length + 1;
+    // Independent of borrower history — this is the thin-history case the established-history
+    // suppression above doesn't cover, and requires the payments to sum to a clean multiple, not
+    // just be normal-sized (a duplicate of a normal-sized EMI is still a duplicate).
+    const catchUp = borrower ? catchUpMultiplier(totalCount, txAmount, borrower.expectedMonthlyPayment) : null;
 
-    if (settings.suppressionsEnabled && isNormalSized && hasTrackRecord) {
+    if (settings.suppressionsEnabled && catchUp) {
       suppressed.push({
         rule: 'DUPLICATE_PAYMENT',
-        reason: `Payment of $${txAmount.toFixed(2)} repeated ${genuineDuplicates.length + 1}× within ${windowMinutes} min, but amount is within normal EMI range and borrower has ${maturity} history — treated as extra/catch-up payments, not duplicate fraud.`,
-        value: genuineDuplicates.length + 1,
+        reason: `${totalCount} payments of $${txAmount.toFixed(2)} sum to ${catchUp}× the expected monthly payment ($${(totalCount * txAmount).toFixed(2)} ≈ ${catchUp}×$${borrower!.expectedMonthlyPayment.toFixed(2)}) — likely catch-up payment, not duplicate charge.`,
+        value: totalCount,
+      });
+    } else if (settings.suppressionsEnabled && isNormalSized && hasTrackRecord) {
+      suppressed.push({
+        rule: 'DUPLICATE_PAYMENT',
+        reason: `Payment of $${txAmount.toFixed(2)} repeated ${totalCount}× within ${windowMinutes} min, but amount is within normal EMI range and borrower has ${maturity} history — treated as extra/catch-up payments, not duplicate fraud.`,
+        value: totalCount,
       });
     } else {
       signals.push({
         rule: 'DUPLICATE_PAYMENT',
-        description: `Payment of $${txAmount.toFixed(2)} appears ${genuineDuplicates.length + 1}× within ${windowMinutes} min window.`,
-        value: genuineDuplicates.length + 1,
+        description: `Payment of $${txAmount.toFixed(2)} appears ${totalCount}× within ${windowMinutes} min window.`,
+        value: totalCount,
       });
     }
   }
